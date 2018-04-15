@@ -32,6 +32,7 @@ from .modules import ModuleReturnValue
 
 import os, sys, shutil, uuid
 import re, shlex
+import subprocess
 from collections import namedtuple
 from pathlib import PurePath
 
@@ -80,10 +81,11 @@ class TryRunResultHolder(InterpreterObject):
 
 class RunProcess(InterpreterObject):
 
-    def __init__(self, cmd, args, source_dir, build_dir, subdir, mesonintrospect, in_builddir=False):
+    def __init__(self, cmd, args, source_dir, build_dir, subdir, mesonintrospect, in_builddir=False, capture=True):
         super().__init__()
         if not isinstance(cmd, ExternalProgram):
             raise AssertionError('BUG: RunProcess must be passed an ExternalProgram')
+        self.capture = capture
         pc, self.stdout, self.stderr = self.run_command(cmd, args, source_dir, build_dir, subdir, mesonintrospect, in_builddir)
         self.returncode = pc.returncode
         self.methods.update({'returncode': self.returncode_method,
@@ -104,12 +106,17 @@ class RunProcess(InterpreterObject):
             cwd = os.path.join(source_dir, subdir)
         child_env = os.environ.copy()
         child_env.update(env)
+        stdout = subprocess.PIPE if self.capture else subprocess.DEVNULL
         mlog.debug('Running command:', ' '.join(command_array))
         try:
-            p, o, e = Popen_safe(command_array, env=child_env, cwd=cwd)
-            mlog.debug('--- stdout----')
-            mlog.debug(o)
-            mlog.debug('----stderr----')
+            p, o, e = Popen_safe(command_array, stdout=stdout, env=child_env, cwd=cwd)
+            if self.capture:
+                mlog.debug('--- stdout ---')
+                mlog.debug(o)
+            else:
+                o = ''
+                mlog.debug('--- stdout disabled ---')
+            mlog.debug('--- stderr ---')
             mlog.debug(e)
             mlog.debug('')
             return p, o, e
@@ -1478,6 +1485,7 @@ permitted_kwargs = {'add_global_arguments': {'language'},
                     'jar': build.known_jar_kwargs,
                     'project': {'version', 'meson_version', 'default_options', 'license', 'subproject_dir'},
                     'run_target': {'command', 'depends'},
+                    'run_command': {'capture'},
                     'shared_library': build.known_shlib_kwargs,
                     'shared_module': build.known_shmod_kwargs,
                     'static_library': build.known_stlib_kwargs,
@@ -1749,7 +1757,7 @@ external dependencies (including libraries) must go to "dependencies".''')
                 if not isinstance(actual, wanted):
                     raise InvalidArguments('Incorrect argument type.')
 
-    @noKwargs
+    @permittedKwargs(permitted_kwargs['run_command'])
     def func_run_command(self, node, args, kwargs):
         return self.run_command_impl(node, args, kwargs)
 
@@ -1758,6 +1766,7 @@ external dependencies (including libraries) must go to "dependencies".''')
             raise InterpreterException('Not enough arguments')
         cmd = args[0]
         cargs = args[1:]
+        capture = kwargs.get('capture', True)
         srcdir = self.environment.get_source_dir()
         builddir = self.environment.get_build_dir()
         m = 'must be a string, or the output of find_program(), files() '\
@@ -1812,7 +1821,8 @@ external dependencies (including libraries) must go to "dependencies".''')
                     if a not in self.build_def_files:
                         self.build_def_files.append(a)
         return RunProcess(cmd, expanded_args, srcdir, builddir, self.subdir,
-                          self.environment.get_build_command() + ['introspect'], in_builddir)
+                          self.environment.get_build_command() + ['introspect'],
+                          in_builddir=in_builddir, capture=capture)
 
     @stringArgs
     def func_gettext(self, nodes, args, kwargs):
