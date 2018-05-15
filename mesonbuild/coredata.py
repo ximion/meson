@@ -354,10 +354,15 @@ def load(build_dir):
 
 def save(obj, build_dir):
     filename = os.path.join(build_dir, 'meson-private', 'coredata.dat')
+    tempfilename = filename + '~'
     if obj.version != version:
         raise MesonException('Fatal version mismatch corruption.')
-    with open(filename, 'wb') as f:
+    with open(tempfilename, 'wb') as f:
         pickle.dump(obj, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tempfilename, filename)
+    return filename
 
 def get_builtin_options():
     return list(builtin_options.keys())
