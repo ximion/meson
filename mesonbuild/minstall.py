@@ -14,13 +14,23 @@
 
 import sys, pickle, os, shutil, subprocess, gzip, platform, errno
 import shlex
+import argparse
 from glob import glob
-from . import depfixer
-from . import destdir_join
-from ..mesonlib import is_windows, Popen_safe
+from .scripts import depfixer
+from .scripts import destdir_join
+from .mesonlib import is_windows, Popen_safe
+from .mtest import rebuild_all
 
 install_log_file = None
 selinux_updates = []
+
+def buildparser():
+    parser = argparse.ArgumentParser(prog='meson install')
+    parser.add_argument('-C', default='.', dest='wd',
+                        help='directory to cd into before running')
+    parser.add_argument('--no-rebuild', default=False, action='store_true',
+                        help='Do not rebuild before installing.')
+    return parser
 
 class DirMaker:
     def __init__(self):
@@ -402,12 +412,17 @@ def install_targets(d):
 
 def run(args):
     global install_log_file
-    if len(args) != 1:
-        print('Installer script for Meson. Do not run on your own, mmm\'kay?')
-        print('meson_install.py [install info file]')
-    datafilename = args[0]
+    parser = buildparser()
+    opts = parser.parse_args(args)
+    datafilename = 'meson-private/install.dat'
     private_dir = os.path.dirname(datafilename)
+    if not os.path.exists(os.path.join(opts.wd, datafilename)):
+        sys.exit('Install data not found. Run this command in build directory root.')
     log_dir = os.path.join(private_dir, '../meson-logs')
+    if not opts.no_rebuild:
+        if not rebuild_all(opts.wd):
+            sys.exit(-1)
+    os.chdir(opts.wd)
     with open(os.path.join(log_dir, 'install-log.txt'), 'w') as lf:
         install_log_file = lf
         append_to_log('# List of files installed by Meson')
