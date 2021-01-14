@@ -123,6 +123,15 @@ class Vs2010Backend(backends.Backend):
                 source_dir = os.path.join(down, self.build_to_src, genlist.subdir)
                 exe_arr = self.build_target_to_cmd_array(exe, True)
                 idgroup = ET.SubElement(parent_node, 'ItemGroup')
+                gen_deps = [os.path.join(self.environment.get_build_dir(), self.get_target_filename(x)) for x in generator.depends]
+
+                for dep in generator.depends:
+                    relpath = self.get_target_dir_relative_to(dep, target)
+                    vcxproj = os.path.join(relpath, dep.get_id() + '.vcxproj')
+                    pref = ET.SubElement(idgroup, 'ProjectReference', Include=vcxproj)
+                    ET.SubElement(pref, 'Project').text = '{%s}' % self.environment.coredata.target_guids[dep.get_id()]
+                    ET.SubElement(pref, 'LinkLibraryDependencies').text = 'false'
+
                 for i in range(len(infilelist)):
                     if len(infilelist) == len(outfilelist):
                         sole_output = os.path.join(target_private_dir, outfilelist[i])
@@ -159,6 +168,7 @@ class Vs2010Backend(backends.Backend):
                         force_serialize=True
                     )
                     deps = cmd[-1:] + deps
+                    deps.extend(gen_deps)
                     abs_pdir = os.path.join(self.environment.get_build_dir(), self.get_target_dir(target))
                     os.makedirs(abs_pdir, exist_ok=True)
                     cbs = ET.SubElement(idgroup, 'CustomBuild', Include=infilename)
